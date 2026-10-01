@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Usque config.json Generator</title>
+</head>
+<body>
+  <h1>Генератор config.json для Usque</h1>
+  <button id="generate">Сгенерировать config.json</button>
+  <pre id="output" style="white-space: pre-wrap;"></pre>
+
+  <script src="usque-register.js"></script>
+  <script>
+    const PROXY_URL = "https://furry.zsuperchayz-05b.workers.dev/";
+
+    document.getElementById("generate").addEventListener("click", async () => {
+      const out = document.getElementById("output");
+      out.textContent = "Регистрация...";
+
+      try {
+        const config = await window.UsqueRegister.registerDevice({
+          deviceName: "My-Device",
+          baseUrl: PROXY_URL,
+          onStep: (n, msg) => { out.textContent = `Шаг ${n}: ${msg}`; }
+        });
+
+        const json = JSON.stringify(config, null, 2);
+        out.textContent = json;
+
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "config.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        out.textContent = "Ошибка: " + e.message;
+        console.error(e);
+      }
+    });
+  </script>
+</body>
+</html>

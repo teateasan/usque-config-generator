@@ -14,31 +14,94 @@
   <script>
     const PROXY_URL = "https://furry.zsuperchayz-05b.workers.dev/";
 
-    document.getElementById("generate").addEventListener("click", async () => {
-      const out = document.getElementById("output");
+    // Сколько раз максимум повторять при rate-limit (429 / код 1015).
+    const MAX_RETRIES = 5;
+    // Минимальная пауза перед повтором, если сервер не прислал retry_after.
+    const MIN_WAIT_SEC = 5;
+    const DEFAULT_WAIT_SEC = 30;
+
+    const out = document.getElementById("output");
+    const btn = document.getElementById("generate");
+
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    // Обратный отсчёт с обновлением строки каждую секунду.
+    async function countdown(seconds, prefix) {
+      for (let s = seconds; s > 0; s--) {
+        out.textContent = `${prefix} ${s} с…`;
+        await sleep(1000);
+      }
+    }
+
+    function downloadConfig(config) {
+      const json = JSON.stringify(config, null, 2);
+      out.textContent = json;
+
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "config.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
       out.textContent = "Регистрация...";
 
-      try {
-        const config = await window.UsqueRegister.registerDevice({
-          deviceName: "My-Device",
-          baseUrl: PROXY_URL,
-          onStep: (n, msg) => { out.textContent = `Шаг ${n}: ${msg}`; }
-        });
+      let lastError = null;
 
-        const json = JSON.stringify(config, null, 2);
-        out.textContent = json;
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const config = await window.UsqueRegister.registerDevice({
+            deviceName: "My-Device",
+            baseUrl: PROXY_URL,
+            onStep: (n, msg) => { out.textContent = `Шаг ${n}: ${msg}`; }
+          });
 
-        const blob = new Blob([json], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "config.json";
-        a.click();
-        URL.revokeObjectURL(url);
-      } catch (e) {
-        out.textContent = "Ошибка: " + e.message;
-        console.error(e);
+          downloadConfig(config);
+          btn.disabled = false;
+          return;
+        } catch (e) {
+          lastError = e;
+
+          const isRateLimited =
+            e.status === 429 ||
+            e.code === 1015 ||
+            e.code === "rate_limited";
+
+          if (!isRateLimited) {
+            out.textContent = "Ошибка: " + e.message;
+            console.error(e);
+            btn.disabled = false;
+            return;
+          }
+
+          if (attempt === MAX_RETRIES) {
+            out.textContent =
+              `Достигнут лимит попыток (${MAX_RETRIES}). ` +
+              `Последняя ошибка: ${e.message}`;
+            btn.disabled = false;
+            return;
+          }
+
+          const waitSec = Math.max(
+            MIN_WAIT_SEC,
+            Number(e.retryAfter) || DEFAULT_WAIT_SEC
+          );
+
+          await countdown(waitSec, "Ограничение скорости. Повтор через");
+          out.textContent = `Повторная попытка ${attempt + 1} из ${MAX_RETRIES}…`;
+        }
       }
+
+      if (lastError) {
+        out.textContent = "Ошибка: " + lastError.message;
+      }
+      btn.disabled = false;
     });
   </script>
 </body>
